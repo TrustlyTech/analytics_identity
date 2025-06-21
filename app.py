@@ -11,30 +11,42 @@ def connect_db():
 @app.route('/estadisticas/denuncias', methods=['GET'])
 def estadisticas_denuncias():
     intervalo = request.args.get('intervalo', 'mes')
-    if intervalo not in ['dia', 'mes', 'anio']:
-        return jsonify({"exito": False, "error": "Intervalo inválido"}), 400
 
-    trunc = {
-        "dia": "day",
-        "mes": "month",
-        "anio": "year"
-    }[intervalo]
+    # Definir truncado y rangos según el tipo de intervalo
+    hoy = datetime.now()
+    if intervalo == 'mes':
+        trunc = 'week'
+        desde = hoy - timedelta(days=30)
+    elif intervalo == '6M':
+        trunc = 'month'
+        desde = hoy - timedelta(days=180)
+    elif intervalo == 'YTD':
+        trunc = 'month'
+        desde = datetime(hoy.year, 1, 1)
+    elif intervalo == '1Y':
+        trunc = 'month'  # O 'quarter' si prefieres menos puntos
+        desde = hoy - timedelta(days=365)
+    elif intervalo in ['dia', 'anio']:  # soporte adicional original
+        trunc = 'day' if intervalo == 'dia' else 'year'
+        desde = hoy - timedelta(days=30 if intervalo == 'dia' else 365)
+    else:
+        return jsonify({"exito": False, "error": "Intervalo inválido"}), 400
 
     conn = connect_db()
     cur = conn.cursor()
     cur.execute(f"""
         SELECT DATE_TRUNC('{trunc}', fecha) AS periodo, COUNT(*) 
         FROM auditoria_denuncias 
+        WHERE fecha >= %s AND fecha <= %s
         GROUP BY periodo 
         ORDER BY periodo;
-    """)
+    """, (desde, hoy))
     resultados = cur.fetchall()
     cur.close()
     conn.close()
 
-    data = [{"periodo": str(r[0]), "cantidad": r[1]} for r in resultados]
+    data = [{"periodo": r[0].strftime("%Y-%m-%d"), "cantidad": r[1]} for r in resultados]
     return jsonify({"exito": True, "estadisticas": data})
-
 
 @app.route('/estadisticas/localizacion', methods=['GET'])
 def estadisticas_por_ubicacion():
